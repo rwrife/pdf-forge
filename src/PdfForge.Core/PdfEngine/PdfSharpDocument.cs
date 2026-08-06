@@ -1,14 +1,15 @@
-using UglyToad.PdfPig;
+using PdfSharpCore.Pdf;
+using PdfSharpCore.Pdf.IO;
 
 namespace PdfForge.Core.PdfEngine;
 
-public sealed class PdfPigDocument : IPdfDocument
+public sealed class PdfSharpDocument : IPdfDocument
 {
     private readonly byte[] _sourceBytes;
     private readonly PdfDocument _pdfDocument;
     private bool _disposed;
 
-    private PdfPigDocument(string sourcePath, byte[] sourceBytes, PdfDocument pdfDocument)
+    private PdfSharpDocument(string sourcePath, byte[] sourceBytes, PdfDocument pdfDocument)
     {
         SourcePath = sourcePath;
         _sourceBytes = sourceBytes;
@@ -22,11 +23,11 @@ public sealed class PdfPigDocument : IPdfDocument
         get
         {
             ThrowIfDisposed();
-            return _pdfDocument.NumberOfPages;
+            return _pdfDocument.PageCount;
         }
     }
 
-    public static async Task<PdfPigDocument> OpenAsync(string sourcePath, CancellationToken cancellationToken = default)
+    public static async Task<PdfSharpDocument> OpenAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
         {
@@ -40,8 +41,9 @@ public sealed class PdfPigDocument : IPdfDocument
         }
 
         var sourceBytes = await File.ReadAllBytesAsync(fullSourcePath, cancellationToken).ConfigureAwait(false);
-        var pdfDocument = PdfDocument.Open(sourceBytes);
-        return new PdfPigDocument(fullSourcePath, sourceBytes, pdfDocument);
+        var pdfDocument = PdfReader.Open(fullSourcePath, PdfDocumentOpenMode.Import);
+
+        return new PdfSharpDocument(fullSourcePath, sourceBytes, pdfDocument);
     }
 
     public Task SaveAsAsync(string outputPath, CancellationToken cancellationToken = default)
@@ -70,16 +72,6 @@ public sealed class PdfPigDocument : IPdfDocument
         }
 
         return File.WriteAllBytesAsync(fullOutputPath, _sourceBytes, cancellationToken);
-    }
-
-    public void EnsureValidPageNumber(int pageNumber)
-    {
-        ThrowIfDisposed();
-
-        if (pageNumber < 1 || pageNumber > _pdfDocument.NumberOfPages)
-        {
-            throw new ArgumentOutOfRangeException(nameof(pageNumber), pageNumber, "Page number is out of range.");
-        }
     }
 
     public void Dispose()
