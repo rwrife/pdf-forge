@@ -1,6 +1,5 @@
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 
 namespace PdfForge.Core.PdfEngine;
 
@@ -32,8 +31,7 @@ public sealed class PlaceholderPageRenderer : IPageRenderer
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        using var image = new Image<Rgba32>(targetWidth, targetHeight);
-        image.Mutate(context => context.Fill(Color.White));
+        using var image = new Image<Rgba32>(targetWidth, targetHeight, Color.White);
 
         await using var stream = new MemoryStream();
         await image.SaveAsPngAsync(stream, cancellationToken).ConfigureAwait(false);

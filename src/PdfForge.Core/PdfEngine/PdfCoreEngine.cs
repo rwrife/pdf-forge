@@ -1,8 +1,8 @@
 namespace PdfForge.Core.PdfEngine;
 
-public sealed class PdfEngine
+public sealed class PdfCoreEngine
 {
-    public PdfEngine(IPageRenderer? pageRenderer = null)
+    public PdfCoreEngine(IPageRenderer? pageRenderer = null)
     {
         PageRenderer = pageRenderer ?? new PlaceholderPageRenderer();
     }
@@ -11,7 +11,7 @@ public sealed class PdfEngine
 
     public async Task<IPdfDocument> OpenAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
-        var document = await PdfPigDocument.OpenAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        var document = await PdfSharpDocument.OpenAsync(sourcePath, cancellationToken).ConfigureAwait(false);
         return document;
     }
 

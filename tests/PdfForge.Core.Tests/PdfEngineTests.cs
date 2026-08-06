@@ -12,7 +12,7 @@ public class PdfEngineTests
         var sourcePath = CreateTemporaryPdf(pageCount: 3);
         try
         {
-            var engine = new PdfEngine();
+            var engine = new PdfCoreEngine();
             await using var document = await engine.OpenAsync(sourcePath);
 
             Assert.Equal(3, document.PageCount);
@@ -29,7 +29,7 @@ public class PdfEngineTests
         var sourcePath = CreateTemporaryPdf(pageCount: 2);
         try
         {
-            var engine = new PdfEngine();
+            var engine = new PdfCoreEngine();
             await using var document = await engine.OpenAsync(sourcePath);
 
             var result = await engine.RenderPageAsync(document, pageNumber: 2, targetWidth: 240, targetHeight: 160);
@@ -57,7 +57,7 @@ public class PdfEngineTests
         {
             var originalBytes = await File.ReadAllBytesAsync(sourcePath);
 
-            var engine = new PdfEngine();
+            var engine = new PdfCoreEngine();
             await using var document = await engine.OpenAsync(sourcePath);
             await document.SaveAsAsync(outputPath);
 
@@ -81,7 +81,7 @@ public class PdfEngineTests
 
         try
         {
-            var engine = new PdfEngine();
+            var engine = new PdfCoreEngine();
             await using var document = await engine.OpenAsync(sourcePath);
 
             await Assert.ThrowsAsync<InvalidOperationException>(
