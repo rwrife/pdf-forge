@@ -76,7 +76,7 @@ pdf-forge runs fully without AI. When you opt in, it talks to a **local, OpenAI-
 ## Current status / milestones
 
 - [ ] M0 — Repo scaffold, solution layout, CI on `windows-latest`
-- [ ] M1 — Core PDF engine: load, render thumbnails, save
+- [x] M1 — Core PDF engine: load, render thumbnails, save (initial implementation)
 - [ ] M2 — Merge / split / extract / reorder / rotate / delete
 - [ ] M3 — Compression + metadata editor
 - [ ] M4 — Page board UI (drag & drop, multi-select) + drag-drop file open
