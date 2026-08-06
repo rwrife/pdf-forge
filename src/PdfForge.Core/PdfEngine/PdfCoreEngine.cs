@@ -1,8 +1,8 @@
 namespace PdfForge.Core.PdfEngine;
 
-public sealed class PdfEngine
+public sealed class PdfCoreEngine
 {
-    public PdfEngine(IPageRenderer? pageRenderer = null)
+    public PdfCoreEngine(IPageRenderer? pageRenderer = null)
     {
         PageRenderer = pageRenderer ?? new PlaceholderPageRenderer();
     }
