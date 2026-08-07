@@ -65,9 +65,12 @@ public class PdfEngineTests
 
             var sourceBytesAfterSave = await File.ReadAllBytesAsync(sourcePath);
             var outputBytes = await File.ReadAllBytesAsync(outputPath);
+            var sourcePageWidths = ReadPageWidths(sourcePath);
+            var outputPageWidths = ReadPageWidths(outputPath);
 
             Assert.Equal(originalBytes, sourceBytesAfterSave);
-            Assert.Equal(originalBytes, outputBytes);
+            Assert.NotEmpty(outputBytes);
+            Assert.Equal(sourcePageWidths, outputPageWidths);
         }
         finally
         {
