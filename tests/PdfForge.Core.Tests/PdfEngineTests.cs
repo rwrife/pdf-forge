@@ -467,6 +467,12 @@ public class PdfEngineTests
         document.Options.NoCompression = true;
         document.Options.CompressContentStreams = false;
 
+        // Add a large non-user-facing metadata field to emulate real-world bloat
+        // from producer chains. The compression pipeline intentionally normalizes
+        // metadata to the editable fields (Title/Author/Subject/Keywords), so this
+        // payload should be stripped in the compressed output.
+        document.Info.Creator = new string('C', 120_000);
+
         var loremLine = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
         var palette = new[]
         {
