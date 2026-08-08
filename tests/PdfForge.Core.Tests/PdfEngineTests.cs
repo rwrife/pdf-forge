@@ -2,6 +2,8 @@ using PdfForge.Core.PdfEngine;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PdfForge.Core.Tests;
@@ -367,6 +369,71 @@ public class PdfEngineTests
         }
     }
 
+    [Fact]
+    public async Task Metadata_RoundTrip_ReadsAndWritesExpectedFields()
+    {
+        var sourcePath = CreateTemporaryPdfWithWidths(600, 601);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-metadata-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            var engine = new PdfCoreEngine();
+            await using var sourceDocument = await engine.OpenAsync(sourcePath);
+
+            var updatedMetadata = new PdfDocumentMetadata(
+                Title: "Quarterly Planning Packet",
+                Author: "pdf-forge tests",
+                Subject: "Metadata round-trip",
+                Keywords: "pdf,forge,metadata");
+
+            await using var withMetadata = await engine.WriteMetadataAsync(sourceDocument, updatedMetadata);
+            await withMetadata.SaveAsAsync(outputPath);
+
+            await using var reopened = await engine.OpenAsync(outputPath);
+            var readBack = await engine.ReadMetadataAsync(reopened);
+
+            Assert.Equal(updatedMetadata.Title, readBack.Title);
+            Assert.Equal(updatedMetadata.Author, readBack.Author);
+            Assert.Equal(updatedMetadata.Subject, readBack.Subject);
+            Assert.Equal(updatedMetadata.Keywords, readBack.Keywords);
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task CompressAsync_ReducesFileSize_AndPreservesPageCount()
+    {
+        var sourcePath = CreateImageHeavyPdfFixture(pageCount: 3);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-compressed-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            var engine = new PdfCoreEngine();
+            await using var sourceDocument = await engine.OpenAsync(sourcePath);
+
+            var settings = new PdfCompressionSettings(TargetDpi: 120, JpegQuality: 55);
+            await using var compressed = await engine.CompressAsync(sourceDocument, settings);
+            await compressed.SaveAsAsync(outputPath);
+
+            var sourceFileSize = new FileInfo(sourcePath).Length;
+            var compressedFileSize = new FileInfo(outputPath).Length;
+
+            Assert.Equal(sourceDocument.PageCount, compressed.PageCount);
+            Assert.True(
+                compressedFileSize < sourceFileSize,
+                $"Expected compressed file to be smaller. Source={sourceFileSize}, Compressed={compressedFileSize}");
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(outputPath);
+        }
+    }
+
     private static string CreateTemporaryPdf(int pageCount)
     {
         var widths = Enumerable.Range(0, pageCount).Select(index => 595 + index).ToArray();
@@ -392,6 +459,53 @@ public class PdfEngineTests
 
         document.Save(filePath);
         return filePath;
+    }
+
+    private static string CreateImageHeavyPdfFixture(int pageCount)
+    {
+        var imagePath = Path.Combine(Path.GetTempPath(), $"pdf-forge-image-{Guid.NewGuid():N}.png");
+        var pdfPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-image-heavy-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            using (var image = new Image<Rgba32>(1024, 1024))
+            {
+                for (var y = 0; y < image.Height; y++)
+                {
+                    for (var x = 0; x < image.Width; x++)
+                    {
+                        var red = (byte)((x * 17 + y * 11) % 255);
+                        var green = (byte)((x * 7 + y * 13) % 255);
+                        var blue = (byte)((x * y) % 255);
+                        image[x, y] = new Rgba32(red, green, blue);
+                    }
+                }
+
+                image.SaveAsPng(imagePath);
+            }
+
+            using var document = new PdfDocument();
+            document.Options.NoCompression = true;
+            document.Options.CompressContentStreams = false;
+
+            using var embeddedImage = XImage.FromFile(imagePath);
+            for (var i = 0; i < pageCount; i++)
+            {
+                var page = document.AddPage();
+                page.Width = XUnit.FromPoint(612);
+                page.Height = XUnit.FromPoint(792);
+
+                using var graphics = XGraphics.FromPdfPage(page);
+                graphics.DrawImage(embeddedImage, 0, 0, page.Width.Point, page.Height.Point);
+            }
+
+            document.Save(pdfPath);
+            return pdfPath;
+        }
+        finally
+        {
+            DeleteIfExists(imagePath);
+        }
     }
 
     private static int[] ReadPageWidths(string sourcePath)
