@@ -141,6 +141,11 @@ public sealed class PdfSharpDocument : IPdfDocument
             clonedDocument.AddPage(page);
         }
 
+        clonedDocument.Info.Title = importDocument.Info.Title;
+        clonedDocument.Info.Author = importDocument.Info.Author;
+        clonedDocument.Info.Subject = importDocument.Info.Subject;
+        clonedDocument.Info.Keywords = importDocument.Info.Keywords;
+
         return clonedDocument;
     }
 

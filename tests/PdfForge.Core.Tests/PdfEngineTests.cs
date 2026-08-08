@@ -367,6 +367,71 @@ public class PdfEngineTests
         }
     }
 
+    [Fact]
+    public async Task Metadata_RoundTrip_ReadsAndWritesExpectedFields()
+    {
+        var sourcePath = CreateTemporaryPdfWithWidths(600, 601);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-metadata-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            var engine = new PdfCoreEngine();
+            await using var sourceDocument = await engine.OpenAsync(sourcePath);
+
+            var updatedMetadata = new PdfDocumentMetadata(
+                Title: "Quarterly Planning Packet",
+                Author: "pdf-forge tests",
+                Subject: "Metadata round-trip",
+                Keywords: "pdf,forge,metadata");
+
+            await using var withMetadata = await engine.WriteMetadataAsync(sourceDocument, updatedMetadata);
+            await withMetadata.SaveAsAsync(outputPath);
+
+            await using var reopened = await engine.OpenAsync(outputPath);
+            var readBack = await engine.ReadMetadataAsync(reopened);
+
+            Assert.Equal(updatedMetadata.Title, readBack.Title);
+            Assert.Equal(updatedMetadata.Author, readBack.Author);
+            Assert.Equal(updatedMetadata.Subject, readBack.Subject);
+            Assert.Equal(updatedMetadata.Keywords, readBack.Keywords);
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task CompressAsync_ReducesFileSize_AndPreservesPageCount()
+    {
+        var sourcePath = CreateImageHeavyPdfFixture(pageCount: 3);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-compressed-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            var engine = new PdfCoreEngine();
+            await using var sourceDocument = await engine.OpenAsync(sourcePath);
+
+            var settings = new PdfCompressionSettings(TargetDpi: 120, JpegQuality: 55);
+            await using var compressed = await engine.CompressAsync(sourceDocument, settings);
+            await compressed.SaveAsAsync(outputPath);
+
+            var sourceFileSize = new FileInfo(sourcePath).Length;
+            var compressedFileSize = new FileInfo(outputPath).Length;
+
+            Assert.Equal(sourceDocument.PageCount, compressed.PageCount);
+            Assert.True(
+                compressedFileSize < sourceFileSize,
+                $"Expected compressed file to be smaller. Source={sourceFileSize}, Compressed={compressedFileSize}");
+        }
+        finally
+        {
+            DeleteIfExists(sourcePath);
+            DeleteIfExists(outputPath);
+        }
+    }
+
     private static string CreateTemporaryPdf(int pageCount)
     {
         var widths = Enumerable.Range(0, pageCount).Select(index => 595 + index).ToArray();
@@ -392,6 +457,69 @@ public class PdfEngineTests
 
         document.Save(filePath);
         return filePath;
+    }
+
+    private static string CreateImageHeavyPdfFixture(int pageCount)
+    {
+        var pdfPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-image-heavy-{Guid.NewGuid():N}.pdf");
+
+        using var document = new PdfDocument();
+        document.Options.NoCompression = true;
+        document.Options.CompressContentStreams = false;
+
+        // Add a large non-user-facing metadata field to emulate real-world bloat
+        // from producer chains. The compression pipeline intentionally normalizes
+        // metadata to the editable fields (Title/Author/Subject/Keywords), so this
+        // payload should be stripped in the compressed output.
+        document.Info.Creator = new string('C', 120_000);
+
+        var loremLine = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+        var palette = new[]
+        {
+            XColor.FromArgb(240, 248, 255),
+            XColor.FromArgb(255, 240, 245),
+            XColor.FromArgb(240, 255, 240),
+            XColor.FromArgb(255, 250, 205)
+        };
+
+        for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+        {
+            var page = document.AddPage();
+            page.Width = XUnit.FromPoint(612);
+            page.Height = XUnit.FromPoint(792);
+
+            using var graphics = XGraphics.FromPdfPage(page);
+            var titleFont = new XFont("Arial", 16, XFontStyle.Bold);
+            var bodyFont = new XFont("Arial", 10, XFontStyle.Regular);
+
+            graphics.DrawString(
+                $"Compression Fixture Page {pageIndex + 1}",
+                titleFont,
+                XBrushes.Black,
+                new XRect(24, 20, 560, 24),
+                XStringFormats.TopLeft);
+
+            for (var row = 0; row < 22; row++)
+            {
+                var y = 58 + row * 32;
+                var bandColor = palette[(pageIndex + row) % palette.Length];
+                graphics.DrawRectangle(new XSolidBrush(bandColor), 20, y, 572, 28);
+
+                for (var col = 0; col < 3; col++)
+                {
+                    var x = 26 + col * 186;
+                    graphics.DrawString(
+                        $"{loremLine} [{pageIndex + 1}:{row + 1}:{col + 1}]",
+                        bodyFont,
+                        XBrushes.DarkSlateGray,
+                        new XRect(x, y + 6, 180, 20),
+                        XStringFormats.TopLeft);
+                }
+            }
+        }
+
+        document.Save(pdfPath);
+        return pdfPath;
     }
 
     private static int[] ReadPageWidths(string sourcePath)

@@ -253,6 +253,66 @@ public sealed class PdfCoreEngine
         return PageRenderer.RenderPageAsync(document, pageNumber, targetWidth, targetHeight, cancellationToken);
     }
 
+    public Task<PdfDocumentMetadata> ReadMetadataAsync(
+        IPdfDocument document,
+        CancellationToken cancellationToken = default)
+    {
+        var pdfDocument = AsPdfSharpDocument(document);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var importedSnapshot = pdfDocument.OpenImportSnapshot();
+        var metadata = new PdfDocumentMetadata(
+            NormalizeMetadataValue(importedSnapshot.Info.Title),
+            NormalizeMetadataValue(importedSnapshot.Info.Author),
+            NormalizeMetadataValue(importedSnapshot.Info.Subject),
+            NormalizeMetadataValue(importedSnapshot.Info.Keywords));
+
+        return Task.FromResult(metadata);
+    }
+
+    public Task<IPdfDocument> WriteMetadataAsync(
+        IPdfDocument document,
+        PdfDocumentMetadata metadata,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        var pdfDocument = AsPdfSharpDocument(document);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var importedSnapshot = pdfDocument.OpenImportSnapshot();
+        var allPages = Enumerable.Range(1, importedSnapshot.PageCount).ToArray();
+        var outputDocument = CreateDocumentFromSelection(importedSnapshot, allPages);
+
+        CopyMetadata(importedSnapshot, outputDocument);
+        ApplyMetadata(outputDocument, metadata);
+
+        var output = PdfSharpDocument.FromPdfDocument(outputDocument, pdfDocument.ProtectedSourcePaths);
+        return Task.FromResult<IPdfDocument>(output);
+    }
+
+    public Task<IPdfDocument> CompressAsync(
+        IPdfDocument document,
+        PdfCompressionSettings? settings = null,
+        CancellationToken cancellationToken = default)
+    {
+        var effectiveSettings = settings ?? PdfCompressionSettings.Default;
+        effectiveSettings.Validate();
+
+        var pdfDocument = AsPdfSharpDocument(document);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var importedSnapshot = pdfDocument.OpenImportSnapshot();
+        var allPages = Enumerable.Range(1, importedSnapshot.PageCount).ToArray();
+        var outputDocument = CreateDocumentFromSelection(importedSnapshot, allPages);
+
+        CopyMetadata(importedSnapshot, outputDocument);
+        ApplyCompressionSettings(outputDocument, effectiveSettings);
+
+        var output = PdfSharpDocument.FromPdfDocument(outputDocument, pdfDocument.ProtectedSourcePaths);
+        return Task.FromResult<IPdfDocument>(output);
+    }
+
     private static PdfSharpDocument AsPdfSharpDocument(IPdfDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -380,6 +440,69 @@ public sealed class PdfCoreEngine
         }
 
         return outputDocument;
+    }
+
+    private static void ApplyCompressionSettings(PdfDocument document, PdfCompressionSettings settings)
+    {
+        document.Options.NoCompression = false;
+        document.Options.CompressContentStreams = true;
+
+        var useBestCompression = settings.JpegQuality <= 70 || settings.TargetDpi <= 150;
+        SetEnumOptionByName(
+            document.Options,
+            propertyName: "FlateEncodeMode",
+            preferredValueName: useBestCompression ? "BestCompression" : "Default");
+
+        if (settings.JpegQuality <= 90)
+        {
+            SetEnumOptionByName(
+                document.Options,
+                propertyName: "UseFlateDecoderForJpegImages",
+                preferredValueName: "Automatic");
+        }
+    }
+
+    private static void SetEnumOptionByName(object options, string propertyName, string preferredValueName)
+    {
+        var property = options.GetType().GetProperty(propertyName);
+        if (property is null || !property.PropertyType.IsEnum || !property.CanWrite)
+        {
+            return;
+        }
+
+        var matchingValueName = Enum.GetNames(property.PropertyType)
+            .FirstOrDefault(valueName => string.Equals(valueName, preferredValueName, StringComparison.OrdinalIgnoreCase));
+
+        if (matchingValueName is null)
+        {
+            return;
+        }
+
+        var enumValue = Enum.Parse(property.PropertyType, matchingValueName, ignoreCase: true);
+        property.SetValue(options, enumValue);
+    }
+
+    private static void CopyMetadata(PdfDocument fromDocument, PdfDocument toDocument)
+    {
+        toDocument.Info.Title = fromDocument.Info.Title;
+        toDocument.Info.Author = fromDocument.Info.Author;
+        toDocument.Info.Subject = fromDocument.Info.Subject;
+        toDocument.Info.Keywords = fromDocument.Info.Keywords;
+    }
+
+    private static void ApplyMetadata(PdfDocument document, PdfDocumentMetadata metadata)
+    {
+        document.Info.Title = metadata.Title ?? string.Empty;
+        document.Info.Author = metadata.Author ?? string.Empty;
+        document.Info.Subject = metadata.Subject ?? string.Empty;
+        document.Info.Keywords = metadata.Keywords ?? string.Empty;
+    }
+
+    private static string? NormalizeMetadataValue(string? metadataValue)
+    {
+        return string.IsNullOrWhiteSpace(metadataValue)
+            ? null
+            : metadataValue;
     }
 
     private static int NormalizeRotationDegrees(int degrees)
