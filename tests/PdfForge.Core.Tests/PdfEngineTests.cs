@@ -2,8 +2,6 @@ using PdfForge.Core.PdfEngine;
 using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace PdfForge.Core.Tests;
@@ -463,49 +461,59 @@ public class PdfEngineTests
 
     private static string CreateImageHeavyPdfFixture(int pageCount)
     {
-        var imagePath = Path.Combine(Path.GetTempPath(), $"pdf-forge-image-{Guid.NewGuid():N}.png");
         var pdfPath = Path.Combine(Path.GetTempPath(), $"pdf-forge-image-heavy-{Guid.NewGuid():N}.pdf");
 
-        try
+        using var document = new PdfDocument();
+        document.Options.NoCompression = true;
+        document.Options.CompressContentStreams = false;
+
+        var loremLine = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+        var palette = new[]
         {
-            using (var image = new Image<Rgba32>(1024, 1024))
+            XColor.FromArgb(240, 248, 255),
+            XColor.FromArgb(255, 240, 245),
+            XColor.FromArgb(240, 255, 240),
+            XColor.FromArgb(255, 250, 205)
+        };
+
+        for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+        {
+            var page = document.AddPage();
+            page.Width = XUnit.FromPoint(612);
+            page.Height = XUnit.FromPoint(792);
+
+            using var graphics = XGraphics.FromPdfPage(page);
+            var titleFont = new XFont("Arial", 16, XFontStyle.Bold);
+            var bodyFont = new XFont("Arial", 10, XFontStyle.Regular);
+
+            graphics.DrawString(
+                $"Compression Fixture Page {pageIndex + 1}",
+                titleFont,
+                XBrushes.Black,
+                new XRect(24, 20, 560, 24),
+                XStringFormats.TopLeft);
+
+            for (var row = 0; row < 22; row++)
             {
-                for (var y = 0; y < image.Height; y++)
+                var y = 58 + row * 32;
+                var bandColor = palette[(pageIndex + row) % palette.Length];
+                graphics.DrawRectangle(new XSolidBrush(bandColor), 20, y, 572, 28);
+
+                for (var col = 0; col < 3; col++)
                 {
-                    for (var x = 0; x < image.Width; x++)
-                    {
-                        var red = (byte)((x * 17 + y * 11) % 255);
-                        var green = (byte)((x * 7 + y * 13) % 255);
-                        var blue = (byte)((x * y) % 255);
-                        image[x, y] = new Rgba32(red, green, blue);
-                    }
+                    var x = 26 + col * 186;
+                    graphics.DrawString(
+                        $"{loremLine} [{pageIndex + 1}:{row + 1}:{col + 1}]",
+                        bodyFont,
+                        XBrushes.DarkSlateGray,
+                        new XRect(x, y + 6, 180, 20),
+                        XStringFormats.TopLeft);
                 }
-
-                image.SaveAsPng(imagePath);
             }
-
-            using var document = new PdfDocument();
-            document.Options.NoCompression = true;
-            document.Options.CompressContentStreams = false;
-
-            using var embeddedImage = XImage.FromFile(imagePath);
-            for (var i = 0; i < pageCount; i++)
-            {
-                var page = document.AddPage();
-                page.Width = XUnit.FromPoint(612);
-                page.Height = XUnit.FromPoint(792);
-
-                using var graphics = XGraphics.FromPdfPage(page);
-                graphics.DrawImage(embeddedImage, 0, 0, page.Width.Point, page.Height.Point);
-            }
-
-            document.Save(pdfPath);
-            return pdfPath;
         }
-        finally
-        {
-            DeleteIfExists(imagePath);
-        }
+
+        document.Save(pdfPath);
+        return pdfPath;
     }
 
     private static int[] ReadPageWidths(string sourcePath)
