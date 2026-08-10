@@ -327,7 +327,7 @@ public sealed class LocalOpenAiPdfAiService : IPdfAiService, IDisposable
     private static Uri EnsureTrailingSlash(Uri baseUri)
     {
         var value = baseUri.ToString();
-        if (!value.EndsWith('/', StringComparison.Ordinal))
+        if (!value.EndsWith("/", StringComparison.Ordinal))
         {
             value += "/";
         }
