@@ -18,6 +18,16 @@
             <Button Content="Split (One Per Page)" Click="SplitButton_Click" Margin="8,0,0,0" />
             <Button Content="Compress" Click="CompressButton_Click" Margin="8,0,0,0" />
             <Separator />
+            <Button x:Name="OcrButton"
+                    Content="Make Searchable (OCR)"
+                    Click="OcrButton_Click"
+                    IsEnabled="False" />
+            <Button x:Name="SummarizeButton"
+                    Content="Summarize"
+                    Click="SummarizeButton_Click"
+                    Margin="8,0,0,0"
+                    IsEnabled="False" />
+            <Separator />
             <Button Content="Save As..." Click="SaveAsButton_Click" />
         </ToolBar>
 
