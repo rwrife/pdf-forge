@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using PdfForge.Core;
+using PdfForge.Core.Ai;
 using PdfForge.Core.PdfEngine;
 
 namespace PdfForge.App;
@@ -18,6 +19,8 @@ public partial class MainWindow : Window
     private readonly PdfCoreEngine _engine = new();
     private readonly ObservableCollection<PageCardViewModel> _pages = [];
     private readonly HashSet<string> _temporaryFilesToDelete = new(StringComparer.OrdinalIgnoreCase);
+    private readonly PdfAiSettings _aiSettings = PdfAiSettings.Default;
+    private readonly IPdfAiService _aiService = PdfAiServiceFactory.Create(PdfAiSettings.Default);
 
     private Point _dragStartPoint;
     private PageCardViewModel? _draggedItem;
@@ -28,6 +31,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         PageBoard.ItemsSource = _pages;
+        Loaded += async (_, _) => await RefreshAiAvailabilityAsync().ConfigureAwait(true);
         SetStatus($"Ready. {CoreHealth.GetVersionBanner()}");
     }
 
@@ -217,6 +221,57 @@ public partial class MainWindow : Window
             await ReplaceDocumentAsync(compressed).ConfigureAwait(true);
             await ReloadPageBoardAsync().ConfigureAwait(true);
             SetStatus("Compressed current PDF in memory. Use Save As to write output.");
+        }).ConfigureAwait(true);
+    }
+
+    private async void OcrButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_document is null)
+        {
+            SetStatus("No document loaded. Open a PDF first.");
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var selectedCard = PageBoard.SelectedItem as PageCardViewModel;
+            var pageNumber = selectedCard?.DocumentPageNumber ?? 1;
+
+            var searchableDocument = await _engine.OcrPageToSearchableAsync(
+                    _document,
+                    pageNumber,
+                    _aiService)
+                .ConfigureAwait(true);
+
+            await ReplaceDocumentAsync(searchableDocument).ConfigureAwait(true);
+            await ReloadPageBoardAsync().ConfigureAwait(true);
+            SetStatus($"Applied OCR text layer to page {pageNumber}. Use Save As to persist output.");
+        }).ConfigureAwait(true);
+    }
+
+    private async void SummarizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_document is null)
+        {
+            SetStatus("No document loaded. Open a PDF first.");
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var summary = await _engine.SummarizeTextAsync(
+                    "Document summary placeholder: full text extraction wiring lands in a follow-up change.",
+                    _aiService)
+                .ConfigureAwait(true);
+
+            MessageBox.Show(
+                this,
+                summary,
+                "Local summary",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            SetStatus("Generated local summary.");
         }).ConfigureAwait(true);
     }
 
@@ -485,6 +540,24 @@ public partial class MainWindow : Window
 
         _temporaryFilesToDelete.Add(tempPath);
         return tempPath;
+    }
+
+    private async Task RefreshAiAvailabilityAsync()
+    {
+        var availability = await _aiService.ProbeAvailabilityAsync().ConfigureAwait(true);
+        var aiEnabled = availability.CanUseAi;
+
+        OcrButton.IsEnabled = aiEnabled;
+        SummarizeButton.IsEnabled = aiEnabled;
+
+        if (_aiSettings.Enabled && !availability.EndpointReachable)
+        {
+            SetStatus($"Local AI endpoint unavailable; OCR/Summarize disabled. {availability.Message}");
+        }
+        else if (!_aiSettings.Enabled)
+        {
+            SetStatus("Local AI is off by default; OCR/Summarize remain disabled until enabled in settings.");
+        }
     }
 
     private async Task RunBusyAsync(Func<Task> action)

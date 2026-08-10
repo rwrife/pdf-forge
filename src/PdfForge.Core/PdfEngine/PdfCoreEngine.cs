@@ -1,3 +1,5 @@
+using PdfForge.Core.Ai;
+using PdfSharpCore.Drawing;
 using PdfSharpCore.Pdf;
 using PdfSharpCore.Pdf.IO;
 using SixLabors.ImageSharp;
@@ -313,6 +315,71 @@ public sealed class PdfCoreEngine
         return Task.FromResult<IPdfDocument>(output);
     }
 
+    public async Task<IPdfDocument> OcrPageToSearchableAsync(
+        IPdfDocument document,
+        int pageNumber,
+        IPdfAiService aiService,
+        int targetWidth = 1600,
+        int targetHeight = 2200,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(aiService);
+
+        var renderedPage = await RenderPageAsync(
+                document,
+                pageNumber,
+                targetWidth,
+                targetHeight,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        var ocrResult = await aiService.OcrPageAsync(renderedPage, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(ocrResult.Text))
+        {
+            throw new InvalidOperationException("OCR returned empty text; searchable text layer was not applied.");
+        }
+
+        return await AddSearchableTextLayerAsync(document, pageNumber, ocrResult.Text, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public Task<IPdfDocument> AddSearchableTextLayerAsync(
+        IPdfDocument document,
+        int pageNumber,
+        string recognizedText,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(recognizedText))
+        {
+            throw new ArgumentException("Recognized OCR text is required.", nameof(recognizedText));
+        }
+
+        var pdfDocument = AsPdfSharpDocument(document);
+
+        using var importedSnapshot = pdfDocument.OpenImportSnapshot();
+        ValidatePageIndex(pageNumber, importedSnapshot.PageCount, nameof(pageNumber));
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var allPages = Enumerable.Range(1, importedSnapshot.PageCount).ToArray();
+        var outputDocument = CreateDocumentFromSelection(importedSnapshot, allPages);
+
+        CopyMetadata(importedSnapshot, outputDocument);
+        OverlaySearchableText(outputDocument.Pages[pageNumber - 1], recognizedText);
+
+        var output = PdfSharpDocument.FromPdfDocument(outputDocument, pdfDocument.ProtectedSourcePaths);
+        return Task.FromResult<IPdfDocument>(output);
+    }
+
+    public Task<string> SummarizeTextAsync(
+        string extractedText,
+        IPdfAiService aiService,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(aiService);
+        return aiService.SummarizeAsync(extractedText, cancellationToken);
+    }
+
     private static PdfSharpDocument AsPdfSharpDocument(IPdfDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -440,6 +507,26 @@ public sealed class PdfCoreEngine
         }
 
         return outputDocument;
+    }
+
+    private static void OverlaySearchableText(PdfPage page, string recognizedText)
+    {
+        if (string.IsNullOrWhiteSpace(recognizedText))
+        {
+            return;
+        }
+
+        using var graphics = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append);
+
+        // White 1pt text keeps the OCR layer effectively invisible while remaining searchable.
+        var font = new XFont("Arial", 1, XFontStyle.Regular);
+        var bounds = new XRect(
+            x: 2,
+            y: 2,
+            width: Math.Max(1, page.Width.Point - 4),
+            height: Math.Max(1, page.Height.Point - 4));
+
+        graphics.DrawString(recognizedText, font, XBrushes.White, bounds, XStringFormats.TopLeft);
     }
 
     private static void ApplyCompressionSettings(PdfDocument document, PdfCompressionSettings settings)
