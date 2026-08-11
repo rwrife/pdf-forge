@@ -49,6 +49,21 @@ dotnet build -c Release
 dotnet run --project src/PdfForge.App
 ```
 
+### Build Windows packaging artifacts
+
+```powershell
+# Portable self-contained folder
+dotnet publish src/PdfForge.App/PdfForge.App.csproj -c Release -r win-x64 --self-contained true
+
+# MSIX package (Windows + MSBuild with Desktop Bridge tooling)
+msbuild packaging/PdfForge.Package/PdfForge.Package.wapproj /restore /p:Configuration=Release /p:Platform=x64 /p:AppxPackageSigningEnabled=false
+```
+
+Tag pushes matching `v*` run `.github/workflows/release.yml`, which publishes:
+
+- `pdf-forge-win-x64.zip` (portable self-contained build)
+- `pdf-forge-win-x64.msix` (MSIX installer)
+
 ## Example workflow
 
 **Merge two PDFs and extract pages 3–5 of the result:**
