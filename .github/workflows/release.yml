@@ -1,0 +1,86 @@
+name: release
+
+'on':
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore
+        run: dotnet restore pdf-forge.sln
+
+      - name: Build
+        run: dotnet build pdf-forge.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/PdfForge.Core.Tests/PdfForge.Core.Tests.csproj -c Release --no-build --verbosity normal
+
+      - name: Publish portable win-x64 build
+        shell: pwsh
+        run: |
+          dotnet publish src/PdfForge.App/PdfForge.App.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -o artifacts/publish/win-x64
+
+      - name: Create portable zip artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/release | Out-Null
+          if (Test-Path artifacts/release/pdf-forge-win-x64.zip) {
+            Remove-Item artifacts/release/pdf-forge-win-x64.zip -Force
+          }
+          Compress-Archive -Path artifacts/publish/win-x64/* -DestinationPath artifacts/release/pdf-forge-win-x64.zip
+
+      - name: Build MSIX
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/msix | Out-Null
+          msbuild packaging/PdfForge.Package/PdfForge.Package.wapproj `
+            /restore `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxBundle=Never `
+            /p:GenerateAppInstallerFile=false `
+            /p:AppxPackageSigningEnabled=false `
+            /p:AppxPackageDir="$env:GITHUB_WORKSPACE\\artifacts\\msix\\"
+
+      - name: Normalize MSIX filename
+        id: normalize_msix
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem -Path artifacts/msix -Filter *.msix -Recurse | Select-Object -First 1
+          if (-not $msix) {
+            throw "MSIX artifact not found under artifacts/msix"
+          }
+          Copy-Item $msix.FullName artifacts/release/pdf-forge-win-x64.msix -Force
+          "msix_path=artifacts/release/pdf-forge-win-x64.msix" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/release/pdf-forge-win-x64.zip
+            ${{ steps.normalize_msix.outputs.msix_path }}
